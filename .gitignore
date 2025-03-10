@@ -1,0 +1,10 @@
+# Environment variables
+.env
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
