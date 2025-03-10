@@ -3,7 +3,6 @@ package server
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,26 +10,37 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kanna-karuppasamy/smart-grid-monitoring-backend/internal/database"
+	"go.uber.org/zap"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	router *gin.Engine
+	router       *gin.Engine
+	logger       *zap.Logger
+	influxClient *database.InfluxClient
 }
 
 // NewServer creates a new server instance
-func NewServer() *Server {
-	gin.SetMode(gin.ReleaseMode)
+func NewServer(logger *zap.Logger, influxClient *database.InfluxClient) *Server {
+	// Set Gin mode based on environment
+	if os.Getenv("GIN_MODE") == "release" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	router := gin.New()
 
-	// Add recovery middleware
+	// Add middleware
 	router.Use(gin.Recovery())
+	router.Use(LoggerMiddleware(logger))
 
 	// Setup routes
-	router.GET("/health", healthCheck)
+	router.GET("/health", healthCheckHandler(influxClient, logger))
 
 	return &Server{
-		router: router,
+		router:       router,
+		logger:       logger,
+		influxClient: influxClient,
 	}
 }
 
@@ -48,9 +58,9 @@ func (s *Server) Start() {
 
 	// Start server in a goroutine
 	go func() {
-		log.Printf("Server starting on port %s\n", port)
+		s.logger.Info("Server starting", zap.String("port", port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v\n", err)
+			s.logger.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
 
@@ -59,23 +69,67 @@ func (s *Server) Start() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Server shutting down...")
+	s.logger.Info("Server shutting down...")
 
 	// Create context with timeout for shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v\n", err)
+		s.logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
 
-	log.Println("Server exited properly")
+	s.logger.Info("Server exited properly")
 }
 
-// healthCheck handles the health check endpoint
-func healthCheck(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status": "ok",
-		"time":   time.Now().Format(time.RFC3339),
-	})
+// LoggerMiddleware logs HTTP requests
+func LoggerMiddleware(logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+
+		// Process request
+		c.Next()
+
+		// Log request details
+		latency := time.Since(start)
+		statusCode := c.Writer.Status()
+		clientIP := c.ClientIP()
+		method := c.Request.Method
+
+		logger.Info("Request",
+			zap.String("method", method),
+			zap.String("path", path),
+			zap.Int("status", statusCode),
+			zap.String("ip", clientIP),
+			zap.Duration("latency", latency),
+		)
+	}
+}
+
+// healthCheckHandler handles the health check endpoint
+func healthCheckHandler(influxClient *database.InfluxClient, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Write health check event to InfluxDB
+		influxClient.WriteHealthCheck("ok")
+
+		// Try to get system metrics from InfluxDB
+		metrics, err := influxClient.QueryHealthMetrics(time.Hour)
+		if err != nil {
+			logger.Warn("Failed to query InfluxDB metrics", zap.Error(err))
+		}
+
+		// Prepare response
+		response := gin.H{
+			"status": "ok",
+			"time":   time.Now().Format(time.RFC3339),
+		}
+
+		// Add metrics if available
+		if err == nil && metrics != nil {
+			response["metrics"] = metrics
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
 }
