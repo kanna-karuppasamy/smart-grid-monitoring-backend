@@ -19,6 +19,7 @@ type Server struct {
 	router       *gin.Engine
 	logger       *zap.Logger
 	influxClient *database.InfluxClient
+	wsManager    *WebSocketManager
 }
 
 // NewServer creates a new server instance
@@ -34,18 +35,24 @@ func NewServer(logger *zap.Logger, influxClient *database.InfluxClient) *Server 
 	router.Use(gin.Recovery())
 	router.Use(LoggerMiddleware(logger))
 
+	// Create WebSocket manager
+	wsManager := NewWebSocketManager(logger)
+
 	// Setup routes
 	router.GET("/health", healthCheckHandler(influxClient, logger))
+	router.GET("/ws", wsManager.HandleConnection)
 
 	return &Server{
 		router:       router,
 		logger:       logger,
 		influxClient: influxClient,
+		wsManager:    wsManager,
 	}
 }
 
 // Start starts the HTTP server
 func (s *Server) Start() {
+	s.wsManager.Start()
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
