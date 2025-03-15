@@ -291,6 +291,7 @@ func (wsm *WebSocketManager) Stop() {
 
 // getEnergyByRegion returns the current energy consumption by region from InfluxDB
 func (wsm *WebSocketManager) getEnergyByRegion(params map[string]interface{}) interface{} {
+	fmt.Println("getEnergyByRegion")
 	// Create the Flux query for current energy consumption by region
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
@@ -319,11 +320,29 @@ func (wsm *WebSocketManager) getEnergyByRegion(params map[string]interface{}) in
 		return []map[string]interface{}{}
 	}
 
-	return "getEnergyRegion"
+	// Convert results to JSON-serializable records
+	var records []map[string]interface{}
+
+	for result.Next() {
+		fmt.Println("result.next loop")
+		fmt.Println(result.Record().Values())
+		// Get the raw record as a map
+		record := make(map[string]interface{})
+
+		// Add all values from the result record
+		for k, v := range result.Record().Values() {
+			record[k] = v
+		}
+
+		records = append(records, record)
+	}
+	fmt.Println(records)
+	return records
 }
 
 // getFaultyMeters returns the number and details of faulty meter recordings from InfluxDB
 func (wsm *WebSocketManager) getFaultyMeters(params map[string]interface{}) interface{} {
+	fmt.Println("getFaultyMeters")
 	// Create the Flux query for faulty meters
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
@@ -348,11 +367,27 @@ func (wsm *WebSocketManager) getFaultyMeters(params map[string]interface{}) inte
 	}
 	defer result.Close()
 
-	return "getFaultyMeters"
+	if result.Err() != nil {
+		wsm.logger.Error("Error processing InfluxDB results for faulty meter count",
+			zap.Error(result.Err()))
+		return []map[string]interface{}{}
+	}
+
+	var records []map[string]interface{}
+
+	for result.Next() {
+		fmt.Println("result.next loop")
+		fmt.Println(result.Record().Values())
+		records = append(records, result.Record().Values())
+	}
+
+	fmt.Println(records)
+	return records
 }
 
 // getEnergyByBuildingType returns the mean energy consumption by building type from InfluxDB
 func (wsm *WebSocketManager) getEnergyByBuildingType(params map[string]interface{}) interface{} {
+	fmt.Println("getEnergyByBuildingType")
 	// Create the Flux query for energy by building type
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
@@ -375,11 +410,27 @@ func (wsm *WebSocketManager) getEnergyByBuildingType(params map[string]interface
 	}
 	defer result.Close()
 
-	return "getEnergyByBuildingType"
+	if result.Err() != nil {
+		wsm.logger.Error("Error processing InfluxDB results",
+			zap.Error(result.Err()))
+		return []map[string]interface{}{}
+	}
+
+	var records []map[string]interface{}
+
+	for result.Next() {
+		fmt.Println("result.next loop")
+		fmt.Println(result.Record().Values())
+		records = append(records, result.Record().Values())
+	}
+
+	fmt.Println(records)
+	return records
 }
 
 // getPeakLoadMeters returns the peak load consuming meters and their regions from InfluxDB
 func (wsm *WebSocketManager) getPeakLoadMeters(params map[string]interface{}) interface{} {
+	fmt.Println("getPeakLoadMeters")
 	// Create the Flux query for peak load meters
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
@@ -403,5 +454,20 @@ func (wsm *WebSocketManager) getPeakLoadMeters(params map[string]interface{}) in
 	}
 	defer result.Close()
 
-	return "getPeakLoadMeters"
+	if result.Err() != nil {
+		wsm.logger.Error("Error processing InfluxDB results",
+			zap.Error(result.Err()))
+		return []map[string]interface{}{}
+	}
+
+	var records []map[string]interface{}
+
+	for result.Next() {
+		fmt.Println("result.next loop")
+		fmt.Println(result.Record().Values())
+		records = append(records, result.Record().Values())
+	}
+
+	fmt.Println(records)
+	return records
 }
