@@ -13,11 +13,11 @@ import (
 
 // InfluxClient wraps the InfluxDB client
 type InfluxClient struct {
-	client   influxdb2.Client
-	queryAPI api.QueryAPI
-	writeAPI api.WriteAPI
-	org      string
-	bucket   string
+	Client   influxdb2.Client
+	QueryAPI api.QueryAPI
+	WriteAPI api.WriteAPI
+	Org      string
+	Bucket   string
 }
 
 // NewInfluxClient creates a new InfluxDB client
@@ -34,12 +34,12 @@ func NewInfluxClient() (*InfluxClient, error) {
 
 	org := os.Getenv("INFLUXDB_ORG")
 	if org == "" {
-		org = "myorg"
+		org = "Solo"
 	}
 
 	bucket := os.Getenv("INFLUXDB_BUCKET")
 	if bucket == "" {
-		bucket = "mybucket"
+		bucket = "smart-grid-monitoring"
 	}
 
 	client := influxdb2.NewClient(url, token)
@@ -55,17 +55,23 @@ func NewInfluxClient() (*InfluxClient, error) {
 	}
 
 	return &InfluxClient{
-		client:   client,
-		queryAPI: client.QueryAPI(org),
-		writeAPI: client.WriteAPI(org, bucket),
-		org:      org,
-		bucket:   bucket,
+		Client:   client,
+		QueryAPI: client.QueryAPI(org),
+		WriteAPI: client.WriteAPI(org, bucket),
+		Org:      org,
+		Bucket:   bucket,
 	}, nil
 }
 
 // Close closes the InfluxDB client
 func (c *InfluxClient) Close() {
-	c.client.Close()
+	c.Client.Close()
+}
+
+func (c *InfluxClient) Ping() error {
+	// Use the health check endpoint or a simple query to verify the connection
+	_, err := c.Client.Health(context.Background())
+	return err
 }
 
 // QueryHealthMetrics retrieves health metrics from InfluxDB
@@ -76,12 +82,12 @@ func (c *InfluxClient) QueryHealthMetrics(rangeStart time.Duration) (interface{}
 		|> filter(fn: (r) => r._measurement == "system")
 		|> filter(fn: (r) => r._field == "uptime" or r._field == "load")
 		|> last()
-	`, c.bucket, rangeStart.String())
+	`, c.Bucket, rangeStart.String())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := c.queryAPI.Query(ctx, query)
+	result, err := c.QueryAPI.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query InfluxDB: %v", err)
 	}
@@ -112,6 +118,6 @@ func (c *InfluxClient) WriteHealthCheck(status string) {
 		time.Now(),
 	)
 
-	c.writeAPI.WritePoint(point)
-	c.writeAPI.Flush()
+	c.WriteAPI.WritePoint(point)
+	c.WriteAPI.Flush()
 }

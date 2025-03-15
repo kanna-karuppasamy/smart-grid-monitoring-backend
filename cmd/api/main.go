@@ -28,5 +28,7 @@ func main() {
 
 	// Initialize and start the server
 	srv := server.NewServer(log, influxClient)
-	srv.Start()
+	if err := srv.Start(); err != nil {
+		log.Fatal("Failed to start server", zap.Error(err))
+	}
 }

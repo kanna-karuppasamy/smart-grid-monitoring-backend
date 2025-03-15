@@ -2,12 +2,8 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kanna-karuppasamy/smart-grid-monitoring-backend/internal/database"
@@ -35,12 +31,11 @@ func NewServer(logger *zap.Logger, influxClient *database.InfluxClient) *Server 
 	router.Use(gin.Recovery())
 	router.Use(LoggerMiddleware(logger))
 
-	// Create WebSocket manager
-	wsManager := NewWebSocketManager(logger)
+	wsManager := NewWebSocketManager(logger, influxClient)
 
 	// Setup routes
 	router.GET("/health", healthCheckHandler(influxClient, logger))
-	router.GET("/ws", wsManager.HandleConnection)
+	router.GET("/ws", wsManager.HandleWebSocket)
 
 	return &Server{
 		router:       router,
@@ -51,92 +46,51 @@ func NewServer(logger *zap.Logger, influxClient *database.InfluxClient) *Server 
 }
 
 // Start starts the HTTP server
-func (s *Server) Start() {
-	s.wsManager.Start()
+func (s *Server) Start() error {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: s.router,
-	}
-
-	// Start server in a goroutine
-	go func() {
-		s.logger.Info("Server starting", zap.String("port", port))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Fatal("Failed to start server", zap.Error(err))
-		}
-	}()
-
-	// Wait for interrupt signal to gracefully shut down the server
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	s.logger.Info("Server shutting down...")
-
-	// Create context with timeout for shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		s.logger.Fatal("Server forced to shutdown", zap.Error(err))
-	}
-
-	s.logger.Info("Server exited properly")
+	s.logger.Info("Starting server", zap.String("port", port))
+	return http.ListenAndServe(":"+port, s.router)
 }
 
-// LoggerMiddleware logs HTTP requests
+// LoggerMiddleware is a Gin middleware that logs requests
 func LoggerMiddleware(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		start := time.Now()
-		path := c.Request.URL.Path
+		logger.Info("Request received",
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.Request.URL.Path),
+			zap.String("ip", c.ClientIP()),
+		)
 
-		// Process request
 		c.Next()
 
-		// Log request details
-		latency := time.Since(start)
-		statusCode := c.Writer.Status()
-		clientIP := c.ClientIP()
-		method := c.Request.Method
-
-		logger.Info("Request",
-			zap.String("method", method),
-			zap.String("path", path),
-			zap.Int("status", statusCode),
-			zap.String("ip", clientIP),
-			zap.Duration("latency", latency),
+		logger.Info("Request completed",
+			zap.Int("status", c.Writer.Status()),
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.Request.URL.Path),
 		)
 	}
 }
 
-// healthCheckHandler handles the health check endpoint
+// healthCheckHandler handles health check requests
 func healthCheckHandler(influxClient *database.InfluxClient, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Write health check event to InfluxDB
-		influxClient.WriteHealthCheck("ok")
-
-		// Try to get system metrics from InfluxDB
-		metrics, err := influxClient.QueryHealthMetrics(time.Hour)
-		if err != nil {
-			logger.Warn("Failed to query InfluxDB metrics", zap.Error(err))
+		// Check InfluxDB connection
+		if err := influxClient.Ping(); err != nil {
+			logger.Error("Health check failed: InfluxDB connection error", zap.Error(err))
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":  "unhealthy",
+				"message": "InfluxDB connection error",
+			})
+			return
 		}
 
-		// Prepare response
-		response := gin.H{
-			"status": "ok",
-			"time":   time.Now().Format(time.RFC3339),
-		}
-
-		// Add metrics if available
-		if err == nil && metrics != nil {
-			response["metrics"] = metrics
-		}
-
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"message": "All systems operational",
+		})
 	}
 }
