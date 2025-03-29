@@ -346,7 +346,7 @@ func (wsm *WebSocketManager) getFaultyMeters(params map[string]interface{}) inte
 	// Create the Flux query for faulty meters
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
-		|> range(start: -1h)
+		|> range(start: -1m)
 		|> filter(fn: (r) => r._measurement == "energy_consumption")
 		|> filter(fn: (r) => r.status == "fault")
 		|> group(columns: ["meter_id"])
@@ -391,7 +391,7 @@ func (wsm *WebSocketManager) getEnergyByBuildingType(params map[string]interface
 	// Create the Flux query for energy by building type
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
-		|> range(start: -1h)
+		|> range(start: -1m)
 		|> filter(fn: (r) => r._measurement == "energy_consumption")
 		|> filter(fn: (r) => r._field == "consumption_kwh")
 		|> group(columns: ["building_type"])
@@ -434,7 +434,7 @@ func (wsm *WebSocketManager) getPeakLoadMeters(params map[string]interface{}) in
 	// Create the Flux query for peak load meters
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
-		|> range(start: -5m)
+		|> range(start: -1m)
 		|> filter(fn: (r) => r._measurement == "energy_consumption")
 		|> filter(fn: (r) => r._field == "peak_load" and r._value == true)
 		|> group(columns: ["region", "meter_id"])

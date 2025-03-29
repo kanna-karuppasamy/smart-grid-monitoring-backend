@@ -23,6 +23,9 @@ func NewServer(logger *zap.Logger, influxClient *database.InfluxClient) *Server 
 	// Set Gin mode based on environment
 	if os.Getenv("GIN_MODE") == "release" {
 		gin.SetMode(gin.ReleaseMode)
+	} else {
+		// Set a valid default mode
+		gin.SetMode(gin.DebugMode)
 	}
 
 	router := gin.New()
